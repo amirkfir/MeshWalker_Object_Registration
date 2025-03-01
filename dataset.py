@@ -172,8 +172,11 @@ def generate_walk(fn, vertices, faces, edges, labels_from_npz, params_idx):
                'faces': faces.numpy(),
                'edges': edges.numpy(),
                }
-  if dataset_params_list[params_idx[0]].label_per_step:
-    mesh_data['labels'] = labels_from_npz.numpy()
+  try:
+    if dataset_params_list[params_idx[0]].label_per_step:
+      mesh_data['labels'] = labels_from_npz.numpy()
+  except:
+    print("stop!")
 
   dataset_params = dataset_params_list[params_idx[0].numpy()]
   features, labels = mesh_data_to_walk_features(mesh_data, dataset_params)

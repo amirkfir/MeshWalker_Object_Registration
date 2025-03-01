@@ -5,8 +5,8 @@ def get_seq_random_walk_random_global_jumps(mesh_extra, f0, seq_len):
   nbrs = mesh_extra['edges']
   n_vertices = mesh_extra['n_vertices']
   seq = np.zeros((seq_len + 1,), dtype=np.int32)
-  jumps = np.zeros((seq_len + 1,), dtype=np.bool)
-  visited = np.zeros((n_vertices + 1,), dtype=np.bool)
+  jumps = np.zeros((seq_len + 1,), dtype=bool)
+  visited = np.zeros((n_vertices + 1,), dtype=bool)
   visited[-1] = True
   visited[f0] = True
   seq[0] = f0

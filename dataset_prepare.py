@@ -1,11 +1,11 @@
 import glob, os, shutil, sys, json
 from pathlib import Path
 
-import pylab as plt
 import trimesh
 import open3d
 from easydict import EasyDict
 import numpy as np
+from fontTools.misc.cython import returns
 from tqdm import tqdm
 
 import utils
@@ -47,6 +47,25 @@ coseg_labels = [
   '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c',
 ]
 coseg_shape2label = {v: k for k, v in enumerate(coseg_labels)}
+
+
+def map_fns_to_label(path=None, filenames=None):
+  lmap = {}
+  if path is not None:
+    iterate = glob.glob(path + '/*.npz')
+  elif filenames is not None:
+    iterate = filenames
+
+  for fn in iterate:
+    mesh_data = np.load(fn, encoding='latin1', allow_pickle=True)
+    label = int(mesh_data['label'])
+    if label not in lmap.keys():
+      lmap[label] = []
+    if path is None:
+      lmap[label].append(fn)
+    else:
+      lmap[label].append(fn.split('/')[-1])
+  return lmap
 
 
 def calc_mesh_area(mesh):
@@ -201,23 +220,151 @@ def load_mesh(model_fn, classification=True):
 
   return mesh
 
-def create_tmp_dataset(model_fn, p_out, n_target_faces):
-  fileds_needed = ['vertices', 'faces', 'edge_features', 'edges_map', 'edges', 'kdtree_query',
-                   'label', 'labels', 'dataset_name']
-  if not os.path.isdir(p_out):
-    os.makedirs(p_out)
-  mesh_orig = load_mesh(model_fn)
-  mesh, labels, str_to_add = remesh(mesh_orig, n_target_faces)
-  labels = np.zeros((np.asarray(mesh.vertices).shape[0],), dtype=np.int16)
-  mesh_data = EasyDict({'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles), 'label': 0, 'labels': labels})
-  out_fn = p_out + '/tmp'
-  add_fields_and_dump_model(mesh_data, fileds_needed, out_fn, 'tmp')
+# def create_tmp_dataset(model_fn, p_out, n_target_faces):
+#   fileds_needed = ['vertices', 'faces', 'edge_features', 'edges_map', 'edges', 'kdtree_query',
+#                    'label', 'labels', 'dataset_name']
+#   if not os.path.isdir(p_out):
+#     os.makedirs(p_out)
+#   mesh_orig = load_mesh(model_fn)
+#   mesh, labels, str_to_add = remesh(mesh_orig, n_target_faces)
+#   labels = np.zeros((np.asarray(mesh.vertices).shape[0],), dtype=np.int16)
+#   mesh_data = EasyDict({'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles), 'label': 0, 'labels': labels})
+#   out_fn = p_out + '/tmp'
+#   add_fields_and_dump_model(mesh_data, fileds_needed, out_fn, 'tmp')
 
 
-def prepare_directory(dataset_name, pathname_expansion=None, p_out=None, n_target_faces=None, add_labels=True,
+# def prepare_directory(dataset_name, pathname_expansion=None, p_out=None, n_target_faces=None, add_labels=True,
+#                                    size_limit=np.inf, fn_prefix='', verbose=True, classification=True):
+#   fileds_needed = ['vertices', 'faces', 'edges',
+#                    'label', 'labels', 'dataset_name', 'labels_fuzzy']
+#
+#   if not os.path.isdir(p_out):
+#     os.makedirs(p_out)
+#
+#   filenames = glob.glob(pathname_expansion)
+#   filenames.sort()
+#   if len(filenames) > size_limit:
+#     filenames = filenames[:size_limit]
+#   for file in tqdm(filenames, disable=1 - verbose):
+#     out_fn = p_out + '/' + fn_prefix + os.path.split(file)[1].split('.')[0]
+#     mesh = load_mesh(file, classification=classification)
+#     mesh_orig = mesh
+#     mesh_data = EasyDict({'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles)})
+#     if add_labels:
+#       if type(add_labels) is list:
+#         fn2labels_map = add_labels
+#       else:
+#         fn2labels_map = None
+#       label, labels_orig, v_labels_fuzzy = get_labels(dataset_name, mesh_data, file, fn2labels_map=fn2labels_map)
+#     else:
+#       label = np.zeros((0, ))
+#     for this_target_n_faces in n_target_faces:
+#       mesh, labels, str_to_add = remesh(mesh_orig, this_target_n_faces, add_labels=add_labels, labels_orig=labels_orig)
+#       mesh_data = EasyDict({'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles), 'label': label, 'labels': labels})
+#       mesh_data['labels_fuzzy'] = v_labels_fuzzy
+#       out_fc_full = out_fn + str_to_add
+#       add_fields_and_dump_model(mesh_data, fileds_needed, out_fc_full, dataset_name)
+
+# ------------------------------------------------------- #
+
+# def prepare_modelnet40():
+#   n_target_faces = [1000, 2000, 4000]
+#   labels2use = model_net_labels
+#   for i, name in tqdm(enumerate(labels2use)):
+#     for part in ['test', 'train']:
+#       pin = 'datasets_raw/ModelNet40/' + name + '/' + part + '/'
+#       p_out = 'datasets_processed/modelnet40/'
+#       prepare_directory('modelnet40', pathname_expansion=pin + '*.off',
+#                         p_out=p_out, add_labels='modelnet', n_target_faces=n_target_faces,
+#                         fn_prefix=part + '_', verbose=False)
+#
+#
+# def prepare_cubes(labels2use=cubes_labels,
+#                   path_in='datasets_raw/from_meshcnn/cubes/',
+#                   p_out='datasets_processed/cubes'):
+#   dataset_name = 'cubes'
+#   if not os.path.isdir(p_out):
+#     os.makedirs(p_out)
+#
+#   for i, name in enumerate(labels2use):
+#     print('-->>>', name)
+#     for part in ['test', 'train']:
+#       pin = path_in + name + '/' + part + '/'
+#       prepare_directory(dataset_name, pathname_expansion=pin + '*.obj',
+#                                      p_out=p_out, add_labels=dataset_name, fn_prefix=part + '_', n_target_faces=[np.inf],
+#                                      classification=False)
+
+
+# def prepare_seg_from_meshcnn(dataset, subfolder=None):
+#   if dataset == 'human_body':
+#     dataset_name = 'human_seg_from_meshcnn'
+#     p_in2add = 'human_seg'
+#     p_out_sub = p_in2add
+#     p_ext = ''
+#   elif dataset == 'coseg':
+#     p_out_sub = dataset_name = 'coseg'
+#     p_in2add = dataset_name + '/' + subfolder
+#     p_ext = subfolder
+#
+#   path_in = 'datasets_raw/from_meshcnn/' + p_in2add + '/'
+#   p_out = 'datasets_processed/' + p_out_sub + '_from_meshcnn/' + p_ext
+#
+#   for part in ['test', 'train']:
+#     pin = path_in + '/' + part + '/'
+#     prepare_directory(dataset_name, pathname_expansion=pin + '*.obj',
+#                       p_out=p_out, add_labels=dataset_name, fn_prefix=part + '_', n_target_faces=[np.inf],
+#                       classification=False)
+
+def preprocess_shrec11_raw(raw_dataset = 'datasets_raw/Shrec11_raw/',labels_file = 'datasets_raw/Shrec11_raw/test.cla',output_dataset='datasets_processed/shrec11' ):
+  model_number2label = [-1 for _ in range(600)]
+  for line in open(labels_file):
+      sp_line = line.split(' ')
+      if len(sp_line) == 3:
+        name = sp_line[0].replace('_test', '')
+        if name in shrec11_labels:
+          current_label = name
+        else:
+          raise Exception('?')
+      if len(sp_line) == 1 and sp_line[0] != '\n':
+        model_number2label[int(sp_line[0])] = shrec11_shape2label[current_label]
+
+  # Prepare npz files
+  p_in = raw_dataset
+  p_out = output_dataset
+  prepare_directory_from_scratch('shrec11', pathname_expansion=p_in + '*.off',
+                                 p_out=p_out, add_labels=model_number2label, n_target_faces=[2000])
+  # Prepare split train / test
+  change_train_test_split(p_out, 16, 4, '16-04_d')
+
+
+def change_train_test_split(path, n_train_examples, n_test_examples, split_name):
+  np.random.seed()
+  fns_lbls_map = map_fns_to_label(path)
+  for label, fns_ in fns_lbls_map.items():
+    fns = np.random.permutation(fns_)
+    assert len(fns) == n_train_examples + n_test_examples
+    train_path = path + '/' + split_name + '/train'
+    if not os.path.isdir(train_path):
+      os.makedirs(train_path)
+    test_path = path + '/' + split_name + '/test'
+    if not os.path.isdir(test_path):
+      os.makedirs(test_path)
+    for i, fn in enumerate(fns):
+      out_fn = fn.replace('train_', '').replace('test_', '')
+      if i < n_train_examples:
+        shutil.copy(path + '/' + fn, train_path + '/' + out_fn)
+      else:
+        shutil.copy(path + '/' + fn, test_path + '/' + out_fn)
+
+
+# ------------------------------------------------------- #
+
+def prepare_directory_from_scratch(dataset_name, pathname_expansion=None, p_out=None, n_target_faces=None,
+                                   add_labels=True,
                                    size_limit=np.inf, fn_prefix='', verbose=True, classification=True):
-  fileds_needed = ['vertices', 'faces', 'edges',
-                   'label', 'labels', 'dataset_name', 'labels_fuzzy']
+  fileds_needed = ['vertices', 'faces', 'edges', 'kdtree_query',
+                   'label', 'labels', 'dataset_name']
+  fileds_needed += ['labels_fuzzy']
 
   if not os.path.isdir(p_out):
     os.makedirs(p_out)
@@ -231,74 +378,23 @@ def prepare_directory(dataset_name, pathname_expansion=None, p_out=None, n_targe
     mesh = load_mesh(file, classification=classification)
     mesh_orig = mesh
     mesh_data = EasyDict({'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles)})
-    if add_labels:
+    if add_labels is not None:
       if type(add_labels) is list:
         fn2labels_map = add_labels
       else:
         fn2labels_map = None
       label, labels_orig, v_labels_fuzzy = get_labels(dataset_name, mesh_data, file, fn2labels_map=fn2labels_map)
     else:
-      label = np.zeros((0, ))
+      label = np.zeros((0,))
     for this_target_n_faces in n_target_faces:
-      mesh, labels, str_to_add = remesh(mesh_orig, this_target_n_faces, add_labels=add_labels, labels_orig=labels_orig)
-      mesh_data = EasyDict({'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles), 'label': label, 'labels': labels})
+      mesh, labels, str_to_add = remesh(mesh_orig, this_target_n_faces, add_labels=add_labels,
+                                        labels_orig=labels_orig)
+      mesh_data = EasyDict(
+        {'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles), 'label': label,
+         'labels': labels})
       mesh_data['labels_fuzzy'] = v_labels_fuzzy
       out_fc_full = out_fn + str_to_add
-      add_fields_and_dump_model(mesh_data, fileds_needed, out_fc_full, dataset_name)
-
-# ------------------------------------------------------- #
-
-def prepare_modelnet40():
-  n_target_faces = [1000, 2000, 4000]
-  labels2use = model_net_labels
-  for i, name in tqdm(enumerate(labels2use)):
-    for part in ['test', 'train']:
-      pin = 'datasets_raw/ModelNet40/' + name + '/' + part + '/'
-      p_out = 'datasets_processed/modelnet40/'
-      prepare_directory('modelnet40', pathname_expansion=pin + '*.off',
-                        p_out=p_out, add_labels='modelnet', n_target_faces=n_target_faces,
-                        fn_prefix=part + '_', verbose=False)
-
-
-def prepare_cubes(labels2use=cubes_labels,
-                  path_in='datasets_raw/from_meshcnn/cubes/',
-                  p_out='datasets_processed/cubes'):
-  dataset_name = 'cubes'
-  if not os.path.isdir(p_out):
-    os.makedirs(p_out)
-
-  for i, name in enumerate(labels2use):
-    print('-->>>', name)
-    for part in ['test', 'train']:
-      pin = path_in + name + '/' + part + '/'
-      prepare_directory(dataset_name, pathname_expansion=pin + '*.obj',
-                                     p_out=p_out, add_labels=dataset_name, fn_prefix=part + '_', n_target_faces=[np.inf],
-                                     classification=False)
-
-
-def prepare_seg_from_meshcnn(dataset, subfolder=None):
-  if dataset == 'human_body':
-    dataset_name = 'human_seg_from_meshcnn'
-    p_in2add = 'human_seg'
-    p_out_sub = p_in2add
-    p_ext = ''
-  elif dataset == 'coseg':
-    p_out_sub = dataset_name = 'coseg'
-    p_in2add = dataset_name + '/' + subfolder
-    p_ext = subfolder
-
-  path_in = 'datasets_raw/from_meshcnn/' + p_in2add + '/'
-  p_out = 'datasets_processed/' + p_out_sub + '_from_meshcnn/' + p_ext
-
-  for part in ['test', 'train']:
-    pin = path_in + '/' + part + '/'
-    prepare_directory(dataset_name, pathname_expansion=pin + '*.obj',
-                      p_out=p_out, add_labels=dataset_name, fn_prefix=part + '_', n_target_faces=[np.inf],
-                      classification=False)
-
-
-# ------------------------------------------------------- #
-
+      m = add_fields_and_dump_model(mesh_data, fileds_needed, out_fc_full, dataset_name)
 
 def prepare_one_dataset(dataset_name):
   dataset_name = dataset_name.lower()
@@ -306,7 +402,7 @@ def prepare_one_dataset(dataset_name):
     prepare_modelnet40()
 
   if dataset_name == 'shrec11':
-    print('To do later')
+    prepare_shrec11()
 
   if dataset_name == 'cubes':
     prepare_cubes()
@@ -322,18 +418,7 @@ def prepare_one_dataset(dataset_name):
 
 
 if __name__ == '__main__':
+  TEST_FAST = 0
   utils.config_gpu(False)
   np.random.seed(1)
-
-  if len(sys.argv) != 2:
-    print('Use: python dataset_prepare.py <dataset name>')
-    print('For example: python dataset_prepare.py cubes')
-    print('Another example: python dataset_prepare.py all')
-  else:
-    dataset_name = sys.argv[1]
-    if dataset_name == 'all':
-      for dataset_name in ['cubes', 'human_seg', 'coseg', 'modelnet40']:
-        prepare_one_dataset(dataset_name)
-    else:
-      prepare_one_dataset(dataset_name)
-
+  preprocess_shrec11_raw()

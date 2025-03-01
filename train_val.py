@@ -55,7 +55,7 @@ def train_val(params):
   if params.optimizer_type == 'adam':
     optimizer = tf.keras.optimizers.Adam(lr=params.learning_rate[0], clipnorm=params.gradient_clip_th)
   elif params.optimizer_type == 'cycle':
-    @tf.function
+    # @tf.function
     def _scale_fn(x):
       x_th = 500e3 / params.cycle_opt_prms.step_size
       if x < x_th:
@@ -94,7 +94,7 @@ def train_val(params):
   else:
     seg_loss = tf.keras.losses.SparseCategoricalCrossentropy()
 
-  @tf.function
+  # @tf.function
   def train_step(model_ftrs_, labels_, one_label_per_model):
     sp = model_ftrs_.shape
     model_ftrs = tf.reshape(model_ftrs_, (-1, sp[-2], sp[-1]))
@@ -119,7 +119,7 @@ def train_val(params):
     return loss
 
   test_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='test_accuracy')
-  @tf.function
+  # @tf.function
   def test_step(model_ftrs_, labels_, one_label_per_model):
     sp = model_ftrs_.shape
     model_ftrs = tf.reshape(model_ftrs_, (-1, sp[-2], sp[-1]))
@@ -163,8 +163,8 @@ def train_val(params):
             time_msrs[name] = 0
       tb_epoch = time.time()
       n_iters = 0
-      tf.summary.scalar(name="train/learning_rate", data=optimizer._decayed_lr(tf.float32), step=optimizer.iterations)
-      tf.summary.scalar(name="mem/free", data=utils.check_mem_and_exit_if_full(), step=optimizer.iterations)
+      # tf.summary.scalar(name="train/learning_rate", data=optimizer._decayed_lr(tf.float32), step=optimizer.iterations)
+      # tf.summary.scalar(name="mem/free", data=utils.check_mem_and_exit_if_full(), step=optimizer.iterations)
       gpu_tmpr = utils.get_gpu_temprature()
       if gpu_tmpr > 95:
         print('GPU temprature is too high!!!!!')
