@@ -6,15 +6,17 @@ from easydict import EasyDict
 import numpy as np
 import tensorflow as tf
 import tensorflow_addons as tfa
+from tensorflow.python.distribute.device_util import current
+from tensorflow.python.keras.utils.version_utils import callbacks
 
-import rnn_model
+import rnn_object_registration_model
 import dataset
 import utils
 import params_setting
 
 
 def train_val(params):
-  utils.next_iter_to_keep = 10000
+  utils.next_iter_to_keep = 1000
   print(utils.color.BOLD + utils.color.RED + 'params.logdir :::: ', params.logdir, utils.color.END)
   print(utils.color.BOLD + utils.color.RED, os.getpid(), utils.color.END)
   utils.backup_python_files_and_params(params)
@@ -42,7 +44,8 @@ def train_val(params):
   else:
     test_dataset, n_tst_items = dataset.tf_mesh_dataset(params, params.datasets2use['test'][0],
                                                         mode=params.network_tasks[0], size_limit=params.test_dataset_size_limit,
-                                                        shuffle_size=100, min_max_faces2use=params.test_min_max_faces2use)
+                                                        shuffle_size=100, min_max_faces2use=params.test_min_max_faces2use,
+                                                        data_augmentation=params.test_data_augmentation)
   print(' Test Dataset size:', n_tst_items)
 
   # Set up RNN model and optimizer
@@ -62,26 +65,31 @@ def train_val(params):
         return 1.0
       else:
         return 0.5
-    lr_schedule = tfa.optimizers.CyclicalLearningRate(initial_learning_rate=params.cycle_opt_prms.initial_learning_rate,
-                                                      maximal_learning_rate=params.cycle_opt_prms.maximal_learning_rate,
-                                                      step_size=params.cycle_opt_prms.step_size,
-                                                      scale_fn=_scale_fn, scale_mode="cycle", name="MyCyclicScheduler")
-    optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule, clipnorm=params.gradient_clip_th)
+    # lr_schedule = tfa.optimizers.CyclicalLearningRate(initial_learning_rate=params.cycle_opt_prms.initial_learning_rate,
+    #                                                   maximal_learning_rate=params.cycle_opt_prms.maximal_learning_rate,
+    #                                                   step_size=params.cycle_opt_prms.step_size,
+    #                                                   scale_fn=_scale_fn, scale_mode="cycle", name="MyCyclicScheduler")
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor = 'test_loss', factor = 0.8,patience = 15,verbose = 1,mode='min',min_lr=1e-9)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=1e-2, clipnorm=params.gradient_clip_th)
   elif params.optimizer_type == 'sgd':
     optimizer = tf.keras.optimizers.SGD(lr=params.learning_rate[0], decay=0, momentum=0.9, nesterov=True, clipnorm=params.gradient_clip_th)
   else:
     raise Exception('optimizer_type not supported: ' + params.optimizer_type)
 
   if params.net == 'RnnWalkNet':
-    dnn_model = rnn_model.RnnWalkNet(params, params.n_classes, params.net_input_dim, init_net_using, optimizer=optimizer)
+    # dnn_model = rnn_object_registration_model.RnnWalkNet(params, params.n_classes, params.net_input_dim, init_net_using, optimizer=optimizer)
+    dnn_model = rnn_object_registration_model.RnnWalkNet_single_line(params, params.n_classes, params.net_input_dim, init_net_using, optimizer=optimizer)
+    dnn_model.compile(optimizer=optimizer)
 
   # Other initializations
   # ---------------------
+  reduce_lr.set_model(dnn_model)
+
   time_msrs = {}
   time_msrs_names = ['train_step', 'get_train_data', 'test']
   for name in time_msrs_names:
     time_msrs[name] = 0
-  seg_train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='seg_train_accuracy')
+  seg_train_accuracy = tf.keras.metrics.MeanSquaredError(name='train_accuracy')
 
   train_log_names = ['seg_loss']
   train_logs = {name: tf.keras.metrics.Mean(name=name) for name in train_log_names}
@@ -89,24 +97,14 @@ def train_val(params):
 
   # Train / test functions
   # ----------------------
-  # if params.last_layer_actication is None:
-  #   seg_loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-  # else:
-  #   seg_loss = tf.keras.losses.SparseCategoricalCrossentropy()
-  seg_loss = tf.keras.losses.mean_squared_error()
+  seg_loss = tf.keras.losses.MSE
   @tf.function
   def train_step(model_ftrs_, labels_, one_label_per_model):
     sp = model_ftrs_.shape
-    model_ftrs = tf.reshape(model_ftrs_, (-1, sp[-2], sp[-1]))
+    model_ftrs = tf.reshape(model_ftrs_, (-1, sp[-4], sp[-2], sp[-1]))
     with tf.GradientTape() as tape:
-      if one_label_per_model:
-        labels = tf.reshape(tf.transpose(tf.stack((labels_,)*params.n_walks_per_model)),(-1,))
-        predictions = dnn_model(model_ftrs)
-      else:
-        labels = tf.reshape(labels_, (-1, sp[-2]))
-        skip = params.min_seq_len
-        predictions = dnn_model(model_ftrs)[:, skip:]
-        labels = labels[:, skip + 1:]
+      predictions = dnn_model(model_ftrs)
+      labels = tf.squeeze(labels_)
       seg_train_accuracy(labels, predictions)
       loss = seg_loss(labels, predictions)
       loss += tf.reduce_sum(dnn_model.losses)
@@ -118,24 +116,16 @@ def train_val(params):
 
     return loss
 
-  test_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='test_accuracy')
+  test_loss = tf.keras.metrics.MeanSquaredError(name='test_loss')
   @tf.function
   def test_step(model_ftrs_, labels_, one_label_per_model):
     sp = model_ftrs_.shape
-    model_ftrs = tf.reshape(model_ftrs_, (-1, sp[-2], sp[-1]))
-    if one_label_per_model:
-      labels = tf.reshape(tf.transpose(tf.stack((labels_,) * params.n_walks_per_model)), (-1,))
-      predictions = dnn_model(model_ftrs, training=False)
-    else:
-      labels = tf.reshape(labels_, (-1, sp[-2]))
-      skip = params.min_seq_len
-      predictions = dnn_model(model_ftrs, training=False)[:, skip:]
-      labels = labels[:, skip + 1:]
-    best_pred = tf.math.argmax(predictions, axis=-1)
-    test_accuracy(labels, predictions)
-    confusion = tf.math.confusion_matrix(labels=tf.reshape(labels, (-1,)), predictions=tf.reshape(best_pred, (-1,)),
-                                         num_classes=params.n_classes)
-    return confusion
+    model_ftrs = tf.reshape(model_ftrs_, (-1, sp[-4], sp[-2], sp[-1]))
+    labels = tf.squeeze(labels_)
+    predictions = dnn_model(model_ftrs, training=False)
+    accuracy = test_loss(labels, predictions)
+
+    return accuracy
   # -------------------------------------
 
   # Loop over training EPOCHs
@@ -145,6 +135,9 @@ def train_val(params):
   e_time = 0
   accrcy_smoothed = tb_epoch = last_loss = None
   all_confusion = {}
+  min_test_loss = 5
+  current_lr = optimizer.learning_rate.numpy()
+
   with tf.summary.create_file_writer(params.logdir).as_default():
     epoch = 0
     while optimizer.iterations.numpy() < params.iters_to_train + train_epoch_size * 2:
@@ -215,14 +208,24 @@ def train_val(params):
             all_confusion[dataset_type] = confusion
         # Dump test info to tensorboard
         if accrcy_smoothed is None:
-          accrcy_smoothed = test_accuracy.result()
-        accrcy_smoothed = accrcy_smoothed * .9 + test_accuracy.result() * 0.1
-        tf.summary.scalar('test/accuracy_' + dataset_type, test_accuracy.result(), step=optimizer.iterations)
-        str_to_print += ', test/accuracy_' + dataset_type + ': ' + str(round(test_accuracy.result().numpy(), 2))
-        test_accuracy.reset_states()
+          accrcy_smoothed = test_loss.result()
+        accrcy_smoothed = accrcy_smoothed * .9 + test_loss.result() * 0.1
+        tf.summary.scalar('test/loss_' + dataset_type, test_loss.result(), step=optimizer.iterations)
+        str_to_print += ', test/loss_' + dataset_type + ': ' + str(round(test_loss.result().numpy(), 4))
+
+        # Manually update ReduceLROnPlateau (without model)
+        logs = {'test_loss': test_loss.result().numpy(), 'lr': current_lr}
+        reduce_lr.on_epoch_end(epoch, logs)
+
+        if test_loss.result() < min_test_loss:
+          min_test_loss = test_loss.result()
+          dnn_model.save_weights(params.logdir, optimizer.iterations.numpy(), keep=1,name = f"loss_{round(min_test_loss.numpy(),2)}_lr_{optimizer.learning_rate.numpy()}")
+
+        test_loss.reset_states()
         time_msrs['test'] += time.time() - tb
 
       str_to_print += ', time: ' + str(round(e_time, 1))
+      str_to_print += f' learning_rate: {optimizer.learning_rate.numpy()}'
       print(str_to_print) 
 
   return last_loss
@@ -231,21 +234,9 @@ def train_val(params):
 def get_params(job, job_part):
   # Classifications
   job = job.lower()
-  if job == 'modelnet40' or job == 'modelnet':
-    params = params_setting.modelnet_params()
 
   if job == 'shrec11':
     params = params_setting.shrec11_params(job_part)
-
-  if job == 'cubes':
-    params = params_setting.cubes_params()
-
-  # Semantic Segmentations
-  if job == 'human_seg':
-    params = params_setting.human_seg_params()
-
-  if job == 'coseg':
-    params = params_setting.coseg_params(job_part)   #  job_part can be : 'aliens' or 'chairs' or 'vases'
 
   return params
 
@@ -281,11 +272,10 @@ if __name__ == '__main__':
 
   if len(sys.argv) <= 1:
     print('Use: python train_val.py <job> <part>')
-    print('<job> can be one of the following: shrec11 / coseg / human_seg / cubes / modelnet40')
+    print('<job> can be one of the following: shrec11')
     print('<job> can be also "all" to run all of the above.')
     print('<part> should be used in case of shrec11 or coseg datasets.')
     print('For shrec11 it should be one of the follows: 10-10_A / 10-10_B / 10-10_C / 16-04_A / 16-04_B / 16-04_C')
-    print('For coseg it should be one of the follows: aliens / vases / chairs')
     print('For example: python train_val.py shrec11 10-10_A')
   else:
     job = sys.argv[1]

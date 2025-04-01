@@ -6,6 +6,7 @@ import tensorflow as tf
 
 import evaluate_classification
 import evaluate_segmentation
+import evaluate_object_registration
 
 
 class color:
@@ -118,7 +119,7 @@ def save_model_if_needed(iterations, dnn_model, params):
       if params.network_task == 'semantic_segmentation':
         accuracy, _ = evaluate_segmentation.calc_accuracy_test(params=params, dnn_model=dnn_model, **params.full_accuracy_test)
       elif params.network_task == 'classification':
-        accuracy, _ = evaluate_classification.calc_accuracy_test(params=params, dnn_model=dnn_model, **params.full_accuracy_test)
+        accuracy, _ = evaluate_object_registration.calc_accuracy_test(params=params, dnn_model=dnn_model, **params.full_accuracy_test)
       with open(params.logdir + '/log.txt', 'at') as f:
         f.write('Accuracy: ' + str(np.round(np.array(accuracy) * 100, 2)) + '%, Iter: ' + str(iterations.numpy()) + '\n')
       tf.summary.scalar('full_accuracy_test/overall', accuracy[0], step=iterations)

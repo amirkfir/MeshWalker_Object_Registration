@@ -2,10 +2,12 @@ import glob, os, copy
 
 import tensorflow as tf
 import numpy as np
+from tensorflow.python.keras.backend import dtype
 
 import utils
 import walks
 import dataset_prepare
+import time
 
 
 # Glabal list of dataset parameters. Used as part of runtime acceleration affort.
@@ -95,6 +97,45 @@ def data_augmentation_rotation(vertices):
   np.dot(vertices, B, out=vertices)
   np.dot(vertices, C, out=vertices)
 
+
+def data_augmentation_transformation(vertices): #preforms rotation, translation and scaling
+  max_rot_ang_deg = data_augmentation_transformation.max_rot_ang_deg
+  max_scaling = data_augmentation_transformation.max_scaling
+  min_scaling = data_augmentation_transformation.min_scaling
+  max_translation = data_augmentation_transformation.max_translation
+
+  r = np.random.uniform(-max_rot_ang_deg, max_rot_ang_deg,3) * np.pi / 180
+
+  T = np.random.uniform(-max_translation, max_translation,3).astype(vertices.dtype)
+
+  Rz = np.array(((np.cos(r[0]), -np.sin(r[0]), 0),
+                (np.sin(r[0]), np.cos(r[0]), 0),
+                (0, 0, 1)),
+               dtype=vertices.dtype)
+  Ry = np.array(((np.cos(r[1]), 0, -np.sin(r[1])),
+                (0, 1, 0),
+                (np.sin(r[1]), 0, np.cos(r[1]))),
+               dtype=vertices.dtype)
+  Rx = np.array(((1, 0, 0),
+                (0, np.cos(r[2]), -np.sin(r[2])),
+                (0, np.sin(r[2]), np.cos(r[2]))),
+               dtype=vertices.dtype)
+
+  if np.random.uniform(0, 1) > 0.5:
+    s = np.random.uniform(1, max_scaling)
+  else:
+    s = np.random.uniform(min_scaling, 1)
+  R = Rx@Ry@Rz
+  S = np.diag([s, s, s]).astype(vertices.dtype)
+  H = np.zeros((3,4)).astype(vertices.dtype)
+  H[:, :3] = R@S
+  H[:, 3] = T
+  np.dot(vertices, R@S, out=vertices)
+  np.add(vertices, T, out=vertices)
+
+
+  return H
+
 # ------------------------------------------------------------------ #
 # --- Some functions used to set up the RNN input "features" ------- #
 # ------------------------------------------------------------------ #
@@ -122,9 +163,16 @@ def fill_vertex_indices(features, f_idx, vertices, mesh_extra, seq, jumps, seq_l
 # ------------------------------------------------------------------ #
 def setup_data_augmentation(dataset_params, data_augmentation):
   dataset_params.data_augmentaion_vertices_functions = []
+  # if 'rotation' in data_augmentation.keys() and data_augmentation['rotation']:
+  #   data_augmentation_rotation.max_rot_ang_deg = data_augmentation['rotation']
+  #   dataset_params.data_augmentaion_vertices_functions.append(data_augmentation_rotation)
   if 'rotation' in data_augmentation.keys() and data_augmentation['rotation']:
-    data_augmentation_rotation.max_rot_ang_deg = data_augmentation['rotation']
-    dataset_params.data_augmentaion_vertices_functions.append(data_augmentation_rotation)
+    data_augmentation_transformation.max_rot_ang_deg = data_augmentation['rotation']
+    data_augmentation_transformation.max_scaling = data_augmentation['scaling'][1]
+    data_augmentation_transformation.min_scaling = data_augmentation['scaling'][0]
+    data_augmentation_transformation.max_translation = data_augmentation['translation']
+    dataset_params.data_augmentaion_vertices_functions.append(data_augmentation_transformation) #returns homogenous 4x4 tranformation matrix
+
 
 
 def setup_features_params(dataset_params, params):
@@ -163,7 +211,7 @@ def generate_walk_py_fun(fn, vertices, faces, edges, labels, params_idx):
   return tf.py_function(
     generate_walk,
     inp=(fn, vertices, faces, edges, labels, params_idx),
-    Tout=(fn.dtype, vertices.dtype, tf.int32)
+    Tout=(fn.dtype, vertices.dtype, tf.float32)
   )
 
 
@@ -181,15 +229,15 @@ def generate_walk(fn, vertices, faces, edges, labels_from_npz, params_idx):
   dataset_params = dataset_params_list[params_idx[0].numpy()]
   features, labels = mesh_data_to_walk_features(mesh_data, dataset_params)
 
-  if dataset_params_list[params_idx[0]].label_per_step:
-    labels_return = labels
-  else:
-    labels_return = labels_from_npz
+  # if dataset_params_list[params_idx[0]].label_per_step:
+  #   labels_return = labels
+  # else:
+  #   labels_return = labels_from_npz
 
-  return fn[0], features, labels_return
+  return fn[0], features, labels
 
 
-def mesh_data_to_walk_features(mesh_data, dataset_params):
+def mesh_data_to_walk_features(mesh_data, dataset_params): #this function get the mesh and creates walks
   vertices = mesh_data['vertices']
   seq_len = dataset_params.seq_len
   if dataset_params.set_seq_len_by_n_faces:
@@ -202,23 +250,24 @@ def mesh_data_to_walk_features(mesh_data, dataset_params):
   if dataset_params.normalize_model:
     norm_model(vertices)
 
-  # Data augmentation
+  # First Data augmentation
   for data_augmentaion_function in dataset_params.data_augmentaion_vertices_functions:
-    data_augmentaion_function(vertices)
+    Transform_Matrix = data_augmentaion_function(vertices)
 
-  # Get essential data from file
-  if dataset_params.label_per_step:
-    mesh_labels = mesh_data['labels']
-  else:
-    mesh_labels = -1 * np.ones((vertices.shape[0],))
+  # # Get essential data from file
+  # if dataset_params.label_per_step:
+  #   mesh_labels = mesh_data['labels']
+  # else:
+  #   mesh_labels = -1 * np.ones((vertices.shape[0],))
 
   mesh_extra = {}
   mesh_extra['n_vertices'] = vertices.shape[0]
   if dataset_params.edges_needed:
     mesh_extra['edges'] = mesh_data['edges']
 
-  features = np.zeros((dataset_params.n_walks_per_model, seq_len, dataset_params.number_of_features), dtype=np.float32)
-  labels   = np.zeros((dataset_params.n_walks_per_model, seq_len), dtype=np.int32)
+  features = np.zeros((2,dataset_params.n_walks_per_model, seq_len, dataset_params.number_of_features), dtype=np.float32)
+
+  labels   = np.zeros((dataset_params.n_walks_per_model, 12), dtype=np.float32)
 
   for walk_id in range(dataset_params.n_walks_per_model):
     f0 = np.random.randint(vertices.shape[0])                               # Get walk starting point
@@ -226,9 +275,22 @@ def mesh_data_to_walk_features(mesh_data, dataset_params):
 
     f_idx = 0
     for fill_ftr_fun in dataset_params.fill_features_functions:
-      f_idx = fill_ftr_fun(features[walk_id], f_idx, vertices, mesh_extra, seq, jumps, seq_len)
-    if dataset_params.label_per_step:
-      labels[walk_id] = mesh_labels[seq[1:seq_len + 1]]
+      f_idx = fill_ftr_fun(features[0,walk_id], f_idx, vertices, mesh_extra, seq, jumps, seq_len) #fill_dxdydz_features function for shrec11
+
+
+    # Second Data augmentation and new position
+    for data_augmentaion_function in dataset_params.data_augmentaion_vertices_functions:
+      Transform_Matrix = data_augmentaion_function(vertices)
+      labels[walk_id] = tf.reshape(Transform_Matrix, [-1])
+
+    f0 = np.random.randint(vertices.shape[0])                               # Get walk starting point
+    seq, jumps = dataset_params.walk_function(mesh_extra, f0, seq_len)      # Get walk indices (and jump indications)
+
+    f_idx = 0
+    for fill_ftr_fun in dataset_params.fill_features_functions:
+      f_idx = fill_ftr_fun(features[1, walk_id], f_idx, vertices, mesh_extra, seq, jumps,
+                           seq_len)  # fill_dxdydz_features function for shrec11
+
 
   return features, labels
 
@@ -302,7 +364,8 @@ def tf_mesh_dataset(params, pathname_expansion, mode=None, size_limit=np.inf, sh
   elif mode == 'semantic_segmentation':
     dataset_params_list[params_idx].label_per_step = True
   else:
-    raise Exception('DS mode ?')
+    dataset_params_list[params_idx].label_per_step = False
+    # raise Exception('DS mode ?')
 
   dump_all_fns_to_file(filenames, params)
 

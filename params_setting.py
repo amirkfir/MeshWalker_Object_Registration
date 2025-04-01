@@ -23,9 +23,9 @@ def set_up_default_params(network_task, run_name, cont_run_number=0):
   params.learning_rate_dynamics = 'cycle'
   params.cycle_opt_prms = EasyDict({'initial_learning_rate': 1e-6,
                                     'maximal_learning_rate': 1e-4,
-                                    'step_size': 10000})
-  params.n_models_per_test_epoch = 300
-  params.gradient_clip_th = 1
+                                    'step_size': 1000})
+  params.n_models_per_test_epoch = 1000
+  params.gradient_clip_th = 0
 
   # Dataset params
   params.classes_indices_to_use = None
@@ -54,7 +54,7 @@ def set_up_default_params(network_task, run_name, cont_run_number=0):
   # Other params
   params.log_freq = 100
   params.walk_alg = 'random_global_jumps'
-  params.net_input = ['dxdydz'] # 'xyz', 'dxdydz', 'jump_indication'
+  params.net_input = ['xyz'] # 'xyz', 'dxdydz', 'jump_indication'
   params.train_min_max_faces2use = [0, np.inf]
   params.test_min_max_faces2use = [0, np.inf]
 
@@ -65,7 +65,7 @@ def set_up_default_params(network_task, run_name, cont_run_number=0):
 
   params.initializers = 'orthogonal'
   params.adjust_vertical_model = False
-  params.net_start_from_prev_net = None
+  params.net_start_from_prev_net = None #"runs/0132-23.03.2025..17.03__shrec11_16-04_d/learned_model2keep__loss_2.3399999141693115_lr_0.00999999977648258200000300.keras" #"runs/0105-21.03.2025..20.54__shrec11_16-04_d/learned_model2keep__00004020.keras"
 
   params.net_gru_dropout = 0
   params.uniform_starting_point = False
@@ -130,16 +130,19 @@ def shrec11_params(split_part):
   # 16-04_A / 16-04_B / 16-04_C
   params = set_up_default_params('classification', 'shrec11_' + split_part, 0)
   params.n_classes = 30
-  params.seq_len = 100
+  params.seq_len = 300
   params.min_seq_len = int(params.seq_len / 2)
 
   params.datasets2use['train'] = ['datasets_processed/shrec11/' + split_part + '/train/*.npz']
   params.datasets2use['test']  = ['datasets_processed/shrec11/' + split_part + '/test/*.npz']
 
-  params.train_data_augmentation = {'rotation': 360}
+  params.train_data_augmentation = {'rotation': 12,'scaling': [1,1],'translation':0}#{'rotation': 360,'scaling': [0.5,2],'translation':5}
+  params.test_data_augmentation = {'rotation': 12,'scaling': [1,1],'translation':0}#{'rotation': 360, 'scaling': [0.5, 2], 'translation': 5}
 
-  params.full_accuracy_test = {'dataset_expansion': params.datasets2use['test'][0],
-                               'labels': dataset_prepare.shrec11_labels}
+
+  # params.full_accuracy_test = {'dataset_expansion': params.datasets2use['test'][0],
+  #                              'labels': dataset_prepare.shrec11_labels}
+  params.full_accuracy_test = None
 
   return params
 
