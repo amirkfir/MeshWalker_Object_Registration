@@ -12,6 +12,7 @@ import time
 
 # Glabal list of dataset parameters. Used as part of runtime acceleration affort.
 dataset_params_list = []
+# tf.config.run_functions_eagerly(True)
 
 # ------------------------------------------------------------------ #
 # ---------- Some utility functions -------------------------------- #
@@ -112,9 +113,9 @@ def data_augmentation_transformation(vertices): #preforms rotation, translation 
                 (np.sin(r[0]), np.cos(r[0]), 0),
                 (0, 0, 1)),
                dtype=vertices.dtype)
-  Ry = np.array(((np.cos(r[1]), 0, -np.sin(r[1])),
+  Ry = np.array(((np.cos(r[1]), 0, np.sin(r[1])),
                 (0, 1, 0),
-                (np.sin(r[1]), 0, np.cos(r[1]))),
+                (-np.sin(r[1]), 0, np.cos(r[1]))),
                dtype=vertices.dtype)
   Rx = np.array(((1, 0, 0),
                 (0, np.cos(r[2]), -np.sin(r[2])),
@@ -213,6 +214,7 @@ def generate_walk_py_fun(fn, vertices, faces, edges, labels, params_idx):
     inp=(fn, vertices, faces, edges, labels, params_idx),
     Tout=(fn.dtype, vertices.dtype, tf.float32)
   )
+
 
 
 def generate_walk(fn, vertices, faces, edges, labels_from_npz, params_idx):

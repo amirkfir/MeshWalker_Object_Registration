@@ -15,6 +15,7 @@ import utils
 from tensorflow.keras.initializers import Orthogonal, GlorotNormal, HeNormal,GlorotUniform
 
 from tensorflow import keras
+from attention_layer import Attention
 layers = tf.keras.layers
 
 
@@ -119,27 +120,31 @@ class RnnWalkNet_single_line(RnnWalkBase):
                              kernel_initializer=HeNormal())
     self._fc2 = layers.Dense(self._layer_sizes['fc2'], kernel_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer,
                              kernel_initializer=HeNormal())
-    rnn_layer = layers.LSTM #layers.GRU
-    self._gru1 = rnn_layer(self._layer_sizes['gru1'], return_sequences=True, return_state=False,
-                            dropout=self._params.net_gru_dropout,
-                            recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
-                            kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer)
+    # rnn_layer = layers.LSTM #layers.GRU
+    # self._gru1 = rnn_layer(self._layer_sizes['gru1'], return_sequences=True, return_state=False,
+    #                         dropout=self._params.net_gru_dropout,
+    #                         recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
+    #                         kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer)
     self._gru1_norm = layers.LayerNormalization()
-    self._gru2 = rnn_layer(self._layer_sizes['gru2'], return_sequences=True, return_state=False,
-                            dropout=self._params.net_gru_dropout,
-                            recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
-                            kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer)
+    # self._gru2 = rnn_layer(self._layer_sizes['gru2'], return_sequences=True, return_state=False,
+    #                         dropout=self._params.net_gru_dropout,
+    #                         recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
+    #                         kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer)
     self._gru2_norm = layers.LayerNormalization()
-
-    self._gru3 = rnn_layer(self._layer_sizes['gru3'],
-                           return_sequences=False,
-                           return_state=False,
-                           dropout=self._params.net_gru_dropout,
-                           recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
-                           kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer,
-                           bias_regularizer=kernel_regularizer)
-    #second walk lane:
+    #
+    # self._gru3 = rnn_layer(self._layer_sizes['gru3'],
+    #                        return_sequences=False,
+    #                        return_state=False,
+    #                        dropout=self._params.net_gru_dropout,
+    #                        recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
+    #                        kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer,
+    #                        bias_regularizer=kernel_regularizer)
+    # second walk lane:
     self._gru3_norm = layers.LayerNormalization()
+    self._attention0 = Attention()
+    self._attention1 = Attention()
+    self._attention2 = Attention()
+
     if self._params.use_norm_layer == 'InstanceNorm':
       self._2_norm1 = tfa.layers.InstanceNormalization(axis=2)
       self._2_norm2 = tfa.layers.InstanceNormalization(axis=2)
@@ -150,24 +155,24 @@ class RnnWalkNet_single_line(RnnWalkBase):
                              kernel_initializer=HeNormal())
     self._2_fc2 = layers.Dense(self._layer_sizes['fc2'], kernel_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer,
                              kernel_initializer=HeNormal())
-    self._2_gru1 = rnn_layer(self._layer_sizes['gru1'], time_major=False, return_sequences=True, return_state=False,
-                            dropout=self._params.net_gru_dropout,
-                            recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
-                            kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer)
-    self._2_gru1_norm = layers.LayerNormalization()
-    self._2_gru2 = rnn_layer(self._layer_sizes['gru2'], time_major=False, return_sequences=True, return_state=False,
-                            dropout=self._params.net_gru_dropout,
-                            recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
-                            kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer)
-    self._2_gru2_norm = layers.LayerNormalization()
-    self._2_gru3 = rnn_layer(self._layer_sizes['gru3'], time_major=False,
-                           return_sequences=not self._params.one_label_per_model,
-                           return_state=False,
-                           dropout=self._params.net_gru_dropout,
-                           recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
-                           kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer,
-                           bias_regularizer=kernel_regularizer)
-    self._2_gru3_norm = layers.LayerNormalization()
+    # self._2_gru1 = rnn_layer(self._layer_sizes['gru1'], time_major=False, return_sequences=True, return_state=False,
+    #                         dropout=self._params.net_gru_dropout,
+    #                         recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
+    #                         kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer)
+    # self._2_gru1_norm = layers.LayerNormalization()
+    # self._2_gru2 = rnn_layer(self._layer_sizes['gru2'], time_major=False, return_sequences=True, return_state=False,
+    #                         dropout=self._params.net_gru_dropout,
+    #                         recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
+    #                         kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer)
+    # self._2_gru2_norm = layers.LayerNormalization()
+    # self._2_gru3 = rnn_layer(self._layer_sizes['gru3'], time_major=False,
+    #                        return_sequences=not self._params.one_label_per_model,
+    #                        return_state=False,
+    #                        dropout=self._params.net_gru_dropout,
+    #                        recurrent_initializer=Orthogonal(), kernel_initializer=GlorotUniform(),
+    #                        kernel_regularizer=kernel_regularizer, recurrent_regularizer=kernel_regularizer,
+    #                        bias_regularizer=kernel_regularizer)
+    # self._2_gru3_norm = layers.LayerNormalization()
 
     self._concat_norm = layers.LayerNormalization()
     self._fc_0 = layers.Dense(512, activation=None, kernel_regularizer=kernel_regularizer, bias_regularizer=kernel_regularizer,
@@ -193,22 +198,33 @@ class RnnWalkNet_single_line(RnnWalkBase):
         x = model_ftrs[:, 0, :]
         y = model_ftrs[:, 1, :]
 
-    x = tf.concat([x, y], axis=-1)
+    # x = tf.concat([x, y], axis=-1)
     x = self._fc1(x)
     if self._use_norm_layer:
       x = self._norm1(x, training=training)
-    # x = tf.nn.leaky_relu(x)
-    x = tf.nn.relu(x)
+    x = tf.nn.leaky_relu(x)
+    # x = tf.nn.relu(x)
     x = self._fc2(x)
     if self._use_norm_layer:
       x = self._norm2(x, training=training)
-    # x = tf.nn.leaky_relu(x)
-    x = tf.nn.relu(x)
-    x1 = self._gru1(x, training=training)
+    x = tf.nn.leaky_relu(x)
+    # x = tf.nn.relu(x)
+    y = self._2_fc1(y)
+    if self._use_norm_layer:
+      y = self._2_norm1(y, training=training)
+    y = tf.nn.leaky_relu(y)
+    # x = tf.nn.relu(x)
+    y = self._2_fc2(y)
+    if self._use_norm_layer:
+      y = self._2_norm2(y, training=training)
+    y = tf.nn.leaky_relu(y)
+
+
+    x1 = self._attention0([x,y], training=training)
     x1 = self._gru1_norm(x1)
-    x2 = self._gru2(x1, training=training)
+    x2 = self._attention1([x1, x1], training=training)
     x2 = self._gru2_norm(x2)
-    x3 = self._gru3(x2, training=training)
+    x3 = self._attention2([x2,x2], training=training)
     x3 = self._gru3_norm(x3)
     x = x3
 

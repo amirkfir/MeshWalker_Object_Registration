@@ -8,7 +8,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 from tensorflow.python.distribute.device_util import current
 from tensorflow.python.keras.utils.version_utils import callbacks
-
+import attention_registration_model
 import rnn_object_registration_model
 import dataset
 import utils
@@ -80,6 +80,9 @@ def train_val(params):
     # dnn_model = rnn_object_registration_model.RnnWalkNet(params, params.n_classes, params.net_input_dim, init_net_using, optimizer=optimizer)
     dnn_model = rnn_object_registration_model.RnnWalkNet_single_line(params, params.n_classes, params.net_input_dim, init_net_using, optimizer=optimizer)
     dnn_model.compile(optimizer=optimizer)
+  elif params.net == 'AttentionWalkNet':
+    dnn_model = attention_registration_model.RnnWalkNet_single_line(params, params.n_classes, params.net_input_dim, init_net_using, optimizer=optimizer)
+    dnn_model.compile(optimizer=optimizer)
 
   # Other initializations
   # ---------------------
@@ -107,7 +110,7 @@ def train_val(params):
       labels = tf.squeeze(labels_)
       seg_train_accuracy(labels, predictions)
       loss = seg_loss(labels, predictions)
-      loss += tf.reduce_sum(dnn_model.losses)
+      # loss += tf.reduce_sum(dnn_model.losses)
 
     gradients = tape.gradient(loss, dnn_model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, dnn_model.trainable_variables))
@@ -116,16 +119,18 @@ def train_val(params):
 
     return loss
 
-  test_loss = tf.keras.metrics.MeanSquaredError(name='test_loss')
+  test_loss = tf.keras.metrics.Mean(name='test_loss')
+  loss_func = tf.keras.losses.MSE
   @tf.function
   def test_step(model_ftrs_, labels_, one_label_per_model):
     sp = model_ftrs_.shape
     model_ftrs = tf.reshape(model_ftrs_, (-1, sp[-4], sp[-2], sp[-1]))
     labels = tf.squeeze(labels_)
     predictions = dnn_model(model_ftrs, training=False)
-    accuracy = test_loss(labels, predictions)
+    loss = loss_func(labels, predictions)
+    test_loss(loss)
 
-    return accuracy
+    return
   # -------------------------------------
 
   # Loop over training EPOCHs
@@ -182,7 +187,7 @@ def train_val(params):
           time_msrs['train_step'] += time.time() - tb
           tb = time.time()
         if iter_db == train_epoch_size - 1:
-          str_to_print += ', TrnLoss: ' + str(round(train_logs[loss2show].result().numpy(), 2))
+          str_to_print += ', TrnLoss: ' + str(round(train_logs[loss2show].result().numpy(), 4))
 
       # Dump training info to tensorboard
       if optimizer.iterations >= next_iter_to_log:
@@ -200,12 +205,12 @@ def train_val(params):
           n_test_iters += model_ftrs.shape[0]
           if n_test_iters > params.n_models_per_test_epoch:
             break
-          confusion = test_step(model_ftrs, labels, one_label_per_model=one_label_per_model)
+          test_step(model_ftrs, labels, one_label_per_model=one_label_per_model)
           dataset_type = utils.get_dataset_type_from_name(name)
-          if dataset_type in all_confusion.keys():
-            all_confusion[dataset_type] += confusion
-          else:
-            all_confusion[dataset_type] = confusion
+          # if dataset_type in all_confusion.keys():
+          #   all_confusion[dataset_type] += confusion
+          # else:
+          #   all_confusion[dataset_type] = confusion
         # Dump test info to tensorboard
         if accrcy_smoothed is None:
           accrcy_smoothed = test_loss.result()
@@ -219,7 +224,7 @@ def train_val(params):
 
         if test_loss.result() < min_test_loss:
           min_test_loss = test_loss.result()
-          dnn_model.save_weights(params.logdir, optimizer.iterations.numpy(), keep=1,name = f"loss_{round(min_test_loss.numpy(),2)}_lr_{optimizer.learning_rate.numpy()}")
+          dnn_model.save_weights(params.logdir, optimizer.iterations.numpy(), keep=1,name = f"loss_{round(min_test_loss.numpy(),8):.8f}_lr_{round(optimizer.learning_rate.numpy(),8):.8f}")
 
         test_loss.reset_states()
         time_msrs['test'] += time.time() - tb
@@ -267,6 +272,7 @@ def get_all_jobs():
   return jobs, job_parts
 
 if __name__ == '__main__':
+  # tf.config.run_functions_eagerly(True)
   np.random.seed(0)
   utils.config_gpu()
 

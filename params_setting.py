@@ -24,8 +24,8 @@ def set_up_default_params(network_task, run_name, cont_run_number=0):
   params.cycle_opt_prms = EasyDict({'initial_learning_rate': 1e-6,
                                     'maximal_learning_rate': 1e-4,
                                     'step_size': 1000})
-  params.n_models_per_test_epoch = 1000
-  params.gradient_clip_th = 0
+  params.n_models_per_test_epoch = 300
+  params.gradient_clip_th = None
 
   # Dataset params
   params.classes_indices_to_use = None
@@ -58,7 +58,7 @@ def set_up_default_params(network_task, run_name, cont_run_number=0):
   params.train_min_max_faces2use = [0, np.inf]
   params.test_min_max_faces2use = [0, np.inf]
 
-  params.net = 'RnnWalkNet'
+  params.net = 'AttentionWalkNet' #'RnnWalkNet'
   params.last_layer_actication = 'softmax'
   params.use_norm_layer = 'InstanceNorm' # BatchNorm / InstanceNorm / None
   params.layer_sizes = None
@@ -130,7 +130,7 @@ def shrec11_params(split_part):
   # 16-04_A / 16-04_B / 16-04_C
   params = set_up_default_params('classification', 'shrec11_' + split_part, 0)
   params.n_classes = 30
-  params.seq_len = 300
+  params.seq_len = 1000
   params.min_seq_len = int(params.seq_len / 2)
 
   params.datasets2use['train'] = ['datasets_processed/shrec11/' + split_part + '/train/*.npz']
